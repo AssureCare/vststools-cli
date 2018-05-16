@@ -11,6 +11,7 @@ All parameters are optional. Any missing parameters will be prompted by the app.
 The defaults for the project names, access token, and account name can be set in app.config settings.
 
 | Parameter Name | Description |
+|----------------|-------------|
 |source_project| The name of the project from where to copy the variable group|
 |source_group| The name of the variable group to be copied|
 |target_project|The name of the project to copy the variable group to|
