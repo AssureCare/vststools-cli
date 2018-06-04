@@ -13,15 +13,19 @@ namespace AssureCare.VstsTools.VariableGroupCopier
 
         private const string YesNoPrompt = "(Y/N)?";
 
+        private const string GroupLocationIsFile = "/file";
+
+        private const string AllGroups = "*";
+
         private static readonly IDictionary<ParameterPosition, string> ParameterPrompts = new Dictionary<ParameterPosition, string>
         {
-            { ParameterPosition.Account, "VSTS Account" },
+            { ParameterPosition.Account, "VSTS account" },
             { ParameterPosition.OverrideExistentTarget, $"Override existent target {YesNoPrompt}" },
-            { ParameterPosition.SourceGroup, "Source Group" },
-            { ParameterPosition.SourceProject, "Source Project" },
-            { ParameterPosition.TargetGroup, "Target Group" },
-            { ParameterPosition.TargetProject, "Target Project" },
-            { ParameterPosition.Token, "VSTS Access Token" }
+            { ParameterPosition.SourceGroup, "Source group name" },
+            { ParameterPosition.SourceProject, $"Source project or '{GroupLocationIsFile}'" },
+            { ParameterPosition.TargetGroup, "Target group name" },
+            { ParameterPosition.TargetProject, $"Target project or '{GroupLocationIsFile}'" },
+            { ParameterPosition.Token, "VSTS access token" }
         };
 
         public ParametersResolver([NotNull] IUserConsole console)
@@ -31,34 +35,43 @@ namespace AssureCare.VstsTools.VariableGroupCopier
 
         public bool InteractiveMode { get; private set; }
 
-        public Parameters AcquireInitialParameters(IReadOnlyList<string> commandArgs)
+        public Parameters AcquireParameters(IReadOnlyList<string> commandArgs, Parameters previousParameters = null)
         {
-            var result = new Parameters
+            var result = previousParameters;
+
+            // Check if this is not the first time we acquire parameters and the mode is not interactive or user dos not want to continue
+            if (previousParameters != null)
             {
-                Account = EmptyToNull(Properties.Settings.Default.VstsAccount) ?? AcquireParameter(commandArgs, ParameterPosition.Account),
-                Token = EmptyToNull(Properties.Settings.Default.VstsUserToken) ?? AcquireParameter(commandArgs, ParameterPosition.Token),
-                SourceProject = AcquireParameter(commandArgs, ParameterPosition.SourceProject, Properties.Settings.Default.DefaultProject),
-                SourceGroup = AcquireParameter(commandArgs, ParameterPosition.SourceGroup)
-                
-            };
+                if (!InteractiveMode || !_console.ReadYesNo($"Continue {YesNoPrompt}")) return null;
+
+                previousParameters.SourceProject = PromptParameter(ParameterPosition.SourceProject, previousParameters.SourceProject);
+            }
+            else
+            {
+                result = new Parameters
+                {
+                    Account = EmptyToNull(Properties.Settings.Default.VstsAccount) ?? AcquireParameter(commandArgs, ParameterPosition.Account),
+                    Token = EmptyToNull(Properties.Settings.Default.VstsUserToken) ?? AcquireParameter(commandArgs, ParameterPosition.Token),
+                    SourceProject = AcquireParameter(commandArgs, ParameterPosition.SourceProject, Properties.Settings.Default.DefaultProject)
+                };
+            }
+            
+            ParameterPrompts[ParameterPosition.SourceGroup] = IsGroupLocationFile(result.SourceProject)
+                ? "Source file name or folder name"
+                : "Source group name";
+
+            result.SourceGroup = AcquireParameter(commandArgs, ParameterPosition.SourceGroup, previousParameters?.SourceGroup);
 
             result.TargetProject = AcquireParameter(commandArgs, ParameterPosition.TargetProject,
-                EmptyToNull(Properties.Settings.Default.DefaultProject) ?? result.SourceProject);
-            result.TargetGroup = AcquireParameter(commandArgs, ParameterPosition.TargetGroup, GenerateDefaultTargetGroup(result.SourceGroup));
+                previousParameters?.TargetProject ?? EmptyToNull(Properties.Settings.Default.DefaultProject) ?? result.SourceProject);
+
+            ParameterPrompts[ParameterPosition.TargetGroup] = IsGroupLocationFile(result.TargetProject)
+                ? "Target file name or folder name"
+                : "Target group name or prefix";
+
+            result.TargetGroup = AcquireParameter(commandArgs, ParameterPosition.TargetGroup, GenerateDefaultTargetGroup(result));
 
             return result;
-        }
-
-        public Parameters PromptNextParameters(Parameters previousParameters)
-        {
-            if (!InteractiveMode || !_console.ReadYesNo($"Continue {YesNoPrompt}")) return null;
-
-            previousParameters.SourceProject = PromptParameter(ParameterPosition.SourceProject, previousParameters.SourceProject);
-            previousParameters.SourceGroup = PromptParameter(ParameterPosition.SourceGroup, previousParameters.SourceGroup);
-            previousParameters.TargetProject = PromptParameter(ParameterPosition.TargetProject, previousParameters.TargetProject);
-            previousParameters.TargetGroup = PromptParameter(ParameterPosition.TargetGroup, GenerateDefaultTargetGroup(previousParameters.SourceGroup));
-
-            return previousParameters;
         }
 
         public string AcquireParameter(IReadOnlyList<string> commandArgs, ParameterPosition position, string defaultValue = null)
@@ -91,6 +104,29 @@ namespace AssureCare.VstsTools.VariableGroupCopier
 
         private static string EmptyToNull(string value) => !string.IsNullOrWhiteSpace(value) ? value : null;
 
-        private static string GenerateDefaultTargetGroup(string sourceGroup) => $"{sourceGroup} - Cloned";
+        private string GenerateDefaultTargetGroup(Parameters param)
+        {
+            // If source is file and target is not then default to file name without extension
+
+
+            return IsGroupLocationFile(param.TargetProject) ? $"{param.SourceGroup}.json" :
+                param.SourceProject.Equals(param.TargetProject, StringComparison.InvariantCultureIgnoreCase) ? $"{param.SourceGroup} - Cloned" :
+                $"{param.SourceGroup}";
+        }
+
+        public bool IsGroupLocationFile(string project) => GroupLocationIsFile.Equals(project, StringComparison.InvariantCultureIgnoreCase);
+
+        public string ValidateParameters(Parameters parameters)
+        {
+            if (IsGroupLocationFile(parameters.SourceProject) && IsGroupLocationFile(parameters.TargetProject))
+                return "Source and target cannot be both files";
+
+            if (parameters.SourceProject.Equals(parameters.TargetProject,
+                    StringComparison.InvariantCultureIgnoreCase) &&
+                parameters.SourceGroup.Equals(parameters.TargetGroup, StringComparison.InvariantCultureIgnoreCase))
+                return "Source and target cannot be the same";
+
+            return null;
+        }
     }
 }

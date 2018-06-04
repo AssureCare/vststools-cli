@@ -1,19 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.TeamFoundation.DistributedTask.WebApi;
-using Microsoft.VisualStudio.Services.Common;
-using Microsoft.VisualStudio.Services.WebApi;
 using NLog;
 using NLog.Fluent;
 
 namespace AssureCare.VstsTools.VariableGroupCopier
 {
-    class Program
+    public class Program
     {
-        private const string UrlFormat = "https://{0}.visualstudio.com/";
-
         private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
         private static readonly IUserConsole UserConsole = new UserConsole();
@@ -22,71 +17,97 @@ namespace AssureCare.VstsTools.VariableGroupCopier
 
         static void Main(string[] args)
         {
-            var parameters = ParametersResolver.AcquireInitialParameters(args);
+            var parameters = ParametersResolver.AcquireParameters(args);
+            
+            // Proceed only if no validation errors
+            if (ValidateParameters(parameters))
+            {
+                CopyVariableGroupAsync(parameters, p =>
+                    {
+                        p = ParametersResolver.AcquireParameters(args, p);
+                        return ValidateParameters(p) ? p : null;
+                    },
 
-            CopyVariableGroupAsync(parameters, p => ParametersResolver.PromptNextParameters(p),
-                p => ParametersResolver.AcquireParameter(args, ParameterPosition.OverrideExistentTarget)
-                    .Equals("Y", StringComparison.InvariantCultureIgnoreCase)).SyncResult();
-
+                    p => ParametersResolver.AcquireParameter(args, ParameterPosition.OverrideExistentTarget)
+                        .Equals("Y", StringComparison.InvariantCultureIgnoreCase));
+            }
+            
             if (ParametersResolver.InteractiveMode) UserConsole.WaitAnyKey();
         }
 
-        private static async Task CopyVariableGroupAsync(Parameters param, Func<Parameters, Parameters> nextParamFunc,
+        private static bool ValidateParameters(Parameters param)
+        {
+            if (param == null) return false;
+
+            var errorMessage = ParametersResolver.ValidateParameters(param);
+
+            var hasErrors = !string.IsNullOrEmpty(errorMessage);
+
+            if (hasErrors)
+            {
+                Logger.Error().Property("Error", errorMessage)
+                    .Message("Incorrect input parameters")
+                    .Write();
+            }
+
+            return !hasErrors;
+        }
+
+        private static void CopyVariableGroupAsync(Parameters param, Func<Parameters, Parameters> nextParamFunc,
             Func<Parameters, bool> overrideExistingTargetGroup)
         {
-            VssConnection connection = null;
+            VariableGroupVstsRepository vstsRepository = null;
 
             var logContext = param.GenerateLogContext();
 
             try
             {
-                connection = new VssConnection(new Uri(string.Format(UrlFormat, param.Account)),
-                    new VssBasicCredential(string.Empty, param.Token));
+                vstsRepository = new VariableGroupVstsRepository(param.Account, param.Token);
+                var fileRepository = new VariableGroupFileRepository();
 
-                using (var client = await connection.GetClientAsync<TaskAgentHttpClient>())
+                do
                 {
-                    do
-                    {
-                        var sourceVariableGroup =
-                            (await client.GetVariableGroupsAsync(param.SourceProject, param.SourceGroup))
-                            .SingleOrDefault();
+                    logContext = param.GenerateLogContext();
 
-                        if (sourceVariableGroup == null)
+                    var sourceRepository = ChooseRepository(param.SourceProject, fileRepository, vstsRepository);
+                    var targeRepository = ChooseRepository(param.TargetProject, fileRepository, vstsRepository);
+
+                    var sourceVariableGroup = sourceRepository.Get(param.SourceProject, param.SourceGroup);
+
+                    if (sourceVariableGroup == null)
+                    {
+                        Logger.Error().Properties(logContext)
+                            .Message("Cannot find the source group")
+                            .Write();
+                        continue;
+                    }
+
+                    // Check if the target group already exists
+                    var targetVariableGroup = targeRepository.Get(param.TargetProject, param.TargetGroup);
+
+                    if (targetVariableGroup != null)
+                    {
+                        if (overrideExistingTargetGroup(param))
                         {
-                            Logger.Error().Properties(logContext)
-                                .Message("Cannot find the source group")
+                            targeRepository.Delete(param.TargetProject, targetVariableGroup.Id);
+                        }
+
+                        else
+                        {
+                            Logger.Info().Properties(logContext)
+                                .Message("Skipping existent target group")
                                 .Write();
                             continue;
                         }
+                    }
 
-                        // Check if the target group already exists
-                        var targetVariableGroup =
-                            (await client.GetVariableGroupsAsync(param.TargetProject, param.TargetGroup))
-                            .SingleOrDefault();
+                    targetVariableGroup = VariableGroupUtility
+                        .CloneVariableGroups(new List<VariableGroup> { sourceVariableGroup }).First();
 
-                        if (targetVariableGroup != null)
-                        {
-                            if (overrideExistingTargetGroup(param))
-                                await client.DeleteVariableGroupAsync(param.TargetProject, targetVariableGroup.Id);
-                            else
-                            {
-                                Logger.Info().Properties(logContext)
-                                    .Message("Skipping existent target group")
-                                    .Write();
-                                continue;
-                            }
-                        }
+                    targeRepository.Add(param.TargetProject, param.TargetGroup, targetVariableGroup);
 
-                        targetVariableGroup = VariableGroupUtility
-                            .CloneVariableGroups(new List<VariableGroup> {sourceVariableGroup}).First();
-
-                        targetVariableGroup.Name = param.TargetGroup;
-
-                        await client.AddVariableGroupAsync(param.TargetProject, targetVariableGroup);
-
-                        Logger.Info().Properties(logContext).Message("Successfully cloned variable group");
-                    } while ((param = nextParamFunc(param)) != null);
-                }
+                    Logger.Info().Properties(logContext).Message("Successfully cloned variable group");
+                } while ((param = nextParamFunc(param)) != null);
             }
             catch (Exception ex)
             {
@@ -97,8 +118,15 @@ namespace AssureCare.VstsTools.VariableGroupCopier
             }
             finally
             {
-                connection?.Disconnect();
+                vstsRepository?.Dispose();
             }
+        }
+
+        private static IVariableGroupRepository ChooseRepository(string project, VariableGroupFileRepository fileRepository, VariableGroupVstsRepository vstsRepository)
+        {
+            if (ParametersResolver.IsGroupLocationFile(project)) return fileRepository;
+
+            return vstsRepository;
         }
     }
 }
