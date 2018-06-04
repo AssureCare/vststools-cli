@@ -12,12 +12,15 @@ namespace AssureCare.VstsTools.VariableGroupCopier
 
         [CanBeNull]
         Parameters AcquireParameters([NotNull] IReadOnlyList<string> commandArgs, Parameters previousParameters = null);
-
-        [NotNull]
-        string AcquireParameter([NotNull] IReadOnlyList<string> commandArgs, ParameterPosition position, string defaultValue = null);
+        
+        bool ConfirmOverride(IReadOnlyList<string> commandArgs, string targetGroupName);
         
         bool IsGroupLocationFile(string project);
 
+        bool IsGroupNamePattern(string name);
+
         string ValidateParameters(Parameters parameters);
+
+        string GenerateActualTargetGroupName(string actualSourceGroupName, Parameters parameters);
     }
 }

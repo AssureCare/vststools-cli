@@ -78,7 +78,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="IKnownLiterals.cs" />
+    <Compile Include="IVariableGroupCopier.cs" />
     <Compile Include="IVariableGroupRepository.cs" />
+    <Compile Include="KnownLiterals.cs" />
     <Compile Include="ParametersResolver.cs" />
     <Compile Include="UserConsole.cs" />
     <Compile Include="IParametersResolver.cs" />
@@ -93,6 +96,7 @@
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
       <DependentUpon>Settings.settings</DependentUpon>
     </Compile>
+    <Compile Include="VariableGroupCopier.cs" />
     <Compile Include="VariableGroupFileRepository.cs" />
     <Compile Include="VariableGroupVstsRepository.cs" />
   </ItemGroup>

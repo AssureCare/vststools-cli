@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.TeamFoundation.DistributedTask.WebApi;
 using Microsoft.VisualStudio.Services.Common;
@@ -19,6 +20,11 @@ namespace AssureCare.VstsTools.VariableGroupCopier
                 new VssBasicCredential(string.Empty, token));
 
             _client = _connection.GetClient<TaskAgentHttpClient>();
+        }
+
+        public IEnumerable<VariableGroup> GetAll(string project, string name)
+        {
+            return _client.GetVariableGroupsAsync(project).SyncResult();
         }
 
         public VariableGroup Get(string project, string name)
