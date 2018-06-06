@@ -1,5 +1,5 @@
 # VSTS Tools
-A set of useful tools and extensions for VSTS
+A set of useful command-line tools and extensions for VSTS
 
 ## Variable Group Copier
 A CLI tool that copies or exports/imports VSTS variable groups
