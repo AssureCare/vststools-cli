@@ -10,7 +10,7 @@
             IParametersResolver parametersResolver = new ParametersResolver(userConsole, knownLiterals);
 
             new VariableGroupCopier(parametersResolver, 
-                (a, t) => new VariableGroupVstsRepository(a, t),
+                (a, t) => new VariableGroupVstsRepository(a, t, parametersResolver),
                 () => new VariableGroupFileRepository(knownLiterals, parametersResolver)).Copy(args);
 
             if (parametersResolver.InteractiveMode) userConsole.WaitAnyKey();

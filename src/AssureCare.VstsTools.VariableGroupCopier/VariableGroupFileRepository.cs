@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using JetBrains.Annotations;
 using Microsoft.TeamFoundation.DistributedTask.WebApi;
+using Newtonsoft.Json;
 using NLog;
 using NLog.Fluent;
 
@@ -12,6 +13,7 @@ namespace AssureCare.VstsTools.VariableGroupCopier
     {
         [NotNull] private readonly IKnownLiterals _knownLiterals;
         [NotNull] private readonly IParametersResolver _parametersResolver;
+        private readonly JsonSerializer _jsonSerializer;
 
         private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
@@ -20,6 +22,7 @@ namespace AssureCare.VstsTools.VariableGroupCopier
         {
             _knownLiterals = knownLiterals ?? throw new ArgumentNullException(nameof(knownLiterals));
             _parametersResolver = parametersResolver ?? throw new ArgumentNullException(nameof(parametersResolver));
+            _jsonSerializer = new JsonSerializer {Formatting = Formatting.Indented};
         }
 
         public IEnumerable<VariableGroup> GetAll(string project, string name)
@@ -36,6 +39,8 @@ namespace AssureCare.VstsTools.VariableGroupCopier
 
                     if (variableGroup != null) yield return variableGroup;
                 }
+
+                yield break;
             }
 
             yield return Get(project, name);
@@ -74,13 +79,14 @@ namespace AssureCare.VstsTools.VariableGroupCopier
         {
             AssertCorrectLocation(project);
 
-            var serializedGroup = JsonUtility.ToString(group);
-
+            var writer = new StringWriter();
+            _jsonSerializer.Serialize(writer, group);
+            
             // Ensure folder exists
             var folder = Path.GetDirectoryName(name);
             if (folder != null) Directory.CreateDirectory(folder);
 
-            File.WriteAllText(name, serializedGroup);
+            File.WriteAllText(name, writer.ToString());
         }
 
         private void AssertCorrectLocation(string project)
